@@ -804,6 +804,11 @@ actor {
   // ============================================================
   var neuralCordState : NeuralCord.NeuralCordState = NeuralCord.initNeuralCord();
 
+  // 32-region brain routing is a persistent actor resident, not a fresh
+  // initializeState() snapshot created every time a frontend query is made.
+  // EOP retains it across canister upgrades alongside the neural cord.
+  var brainRoutingState : BrainRouting.RoutingState = BrainRouting.initializeState();
+
   /// Third Brain wave amplitudes — SEPARATE stable var for upgrade compatibility.
   /// Previously embedded in ThirdBrainState.waveAmplitudes (M0170 blocker).
   /// 9 cosmological standing wave amplitudes — breathe with Kuramoto order.
@@ -1441,6 +1446,43 @@ actor {
       };
       i += 1;
     };
+
+    // ── BRAIN ROUTING: continuous 32-region state ──────────────
+    // Feed real organism signals into the anatomically registered pathways.
+    // All updates remain pure until committed to the actor resident.
+    let _lcSignal : BrainRouting.SignalPacket = {
+      origin = 18; // locus coeruleus
+      target = 4;  // thalamus
+      strength = clamp(0.5 * kuramotoR + 0.5 * coherenceC, 0.0, 1.0);
+      neurochemicalTag = 2; // norepinephrine
+      timestamp = beatCount;
+    };
+    let _gatedLcSignal = BrainRouting.applyThalamicGating(
+      brainRoutingState, _lcSignal
+    );
+    let _defendedLcSignal = BrainRouting.applyAmygdalaThreatModulation(
+      brainRoutingState, _gatedLcSignal
+    );
+    brainRoutingState := BrainRouting.propagateSignal(
+      brainRoutingState, _defendedLcSignal, beatCount
+    );
+
+    let _hippocampalSignal : BrainRouting.SignalPacket = {
+      origin = 26; // entorhinal cortex
+      target = 1;  // hippocampus
+      strength = clamp(mt_memory_coherence, 0.0, 1.0);
+      neurochemicalTag = 1; // serotonin
+      timestamp = beatCount;
+    };
+    let _thetaSignal = BrainRouting.applyHippocampalTheta(
+      brainRoutingState, _hippocampalSignal, beatCount
+    );
+    brainRoutingState := BrainRouting.propagateSignal(
+      brainRoutingState, _thetaSignal, beatCount
+    );
+    brainRoutingState := BrainRouting.runRoutingCycle(
+      brainRoutingState, clamp(coherenceC, 0.0, 1.0), beatCount
+    );
 
     // ── ADRE: AURO DELIBERATION & RESONANCE ENGINE ─────────────
     // 5-pass cognition loop — fires every 873ms after all tier processing.
@@ -7800,15 +7842,17 @@ actor {
   };
 
   public query func getBrainRoutingState() : async BrainRouting.RoutingState {
-    BrainRouting.getRoutingState()
+    brainRoutingState
   };
 
   public query func getAllBrainRegions32() : async [BrainRouting.BrainRegion32] {
-    BrainRouting.getRoutingState().regions
+    brainRoutingState.regions
   };
 
   public query func getActiveNeuroPaths() : async [BrainRouting.NeuroanatomicalPathway] {
-    BrainRouting.getActivePathways()
+    brainRoutingState.pathways.filter<BrainRouting.NeuroanatomicalPathway>(
+      func(p : BrainRouting.NeuroanatomicalPathway) : Bool { p.weight > 0.1 }
+    )
   };
 
   public query func getSubstrateMineState() : async SubstrateMine.SubstrateMineState {
